@@ -1,8 +1,20 @@
 import re
+import os
+import json
 
 import requests
 
+"""
+获取详细教程、获取代码帮助、提出意见建议
+关注微信公众号「裸睡的猪」与猪哥联系
+
+@Author  :   猪哥,
+@Version :   2.0"
+"""
+
 s = requests.Session()
+# cookies序列化文件
+COOKIES_FILE_PATH = 'taobao_login_cookies.txt'
 
 
 class UsernameLogin:
@@ -20,6 +32,8 @@ class UsernameLogin:
         self.verify_password_url = "https://login.taobao.com/member/login.jhtml"
         # 访问st码URL
         self.vst_url = 'https://login.taobao.com/member/vst.htm?st={}'
+        # 淘宝个人 主页
+        self.my_taobao_url = 'http://i.taobao.com/my_taobao.htm'
 
         # 淘宝用户名
         self.username = username
@@ -141,7 +155,10 @@ class UsernameLogin:
         使用st码登录
         :return:
         """
-        # 目前requests库还没有很好的办法破解淘宝滑块验证
+        # 加载cookies文件
+        if self._load_cookies():
+            return True
+        # 判断是否需要滑块验证
         self._user_check()
         st = self._apply_st()
         headers = {
@@ -159,22 +176,57 @@ class UsernameLogin:
         my_taobao_match = re.search(r'top.location.href = "(.*?)"', response.text)
         if my_taobao_match:
             print('登录淘宝成功，跳转链接：{}'.format(my_taobao_match.group(1)))
-            return my_taobao_match.group(1)
+            self._serialization_cookies()
+            return True
         else:
             raise RuntimeError('登录失败！response：{}'.format(response.text))
+
+    def _load_cookies(self):
+        # 1、判断cookies序列化文件是否存在
+        if not os.path.exists(COOKIES_FILE_PATH):
+            return False
+        # 2、加载cookies
+        s.cookies = self._deserialization_cookies()
+        # 3、判断cookies是否过期
+        try:
+            self.get_taobao_nick_name()
+        except Exception as e:
+            os.remove(COOKIES_FILE_PATH)
+            print('cookies过期，删除cookies文件！')
+            return False
+        print('加载淘宝登录cookies成功!!!')
+        return True
+
+    def _serialization_cookies(self):
+        """
+        序列化cookies
+        :return:
+        """
+        cookies_dict = requests.utils.dict_from_cookiejar(s.cookies)
+        with open(COOKIES_FILE_PATH, 'w+', encoding='utf-8') as file:
+            json.dump(cookies_dict, file)
+            print('保存cookies文件成功！')
+
+    def _deserialization_cookies(self):
+        """
+        反序列化cookies
+        :return:
+        """
+        with open(COOKIES_FILE_PATH, 'r+', encoding='utf-8') as file:
+            cookies_dict = json.load(file)
+            cookies = requests.utils.cookiejar_from_dict(cookies_dict)
+            return cookies
 
     def get_taobao_nick_name(self):
         """
         获取淘宝昵称
         :return: 淘宝昵称
         """
-        # 淘宝用户主页url
-        my_taobao_url = self.login()
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36'
         }
         try:
-            response = s.get(my_taobao_url, headers=headers)
+            response = s.get(self.my_taobao_url, headers=headers)
             response.raise_for_status()
         except Exception as e:
             print('获取淘宝主页请求失败！原因：')
@@ -182,7 +234,7 @@ class UsernameLogin:
         # 提取淘宝昵称
         nick_name_match = re.search(r'<input id="mtb-nickname" type="hidden" value="(.*?)"/>', response.text)
         if nick_name_match:
-            print('骚呢，兄弟：{}'.format(nick_name_match.group(1)))
+            print('登录淘宝成功，你的用户名是：{}'.format(nick_name_match.group(1)))
             return nick_name_match.group(1)
         else:
             raise RuntimeError('获取淘宝昵称失败！response：{}'.format(response.text))
@@ -190,10 +242,10 @@ class UsernameLogin:
 
 if __name__ == '__main__':
     # 淘宝用户名
-    username = '你的淘宝账号'
+    username = '你的用户名'
     # 淘宝重要参数，从浏览器或抓包工具中复制，可重复使用
     ua = ua = '119#MlKma56msEckrMMzpwSCmgNzxbdQaRlcBPmaXIoz1usOCPPTlaAYXAvkIAl6Tg2dmQPTrKdo29CxyU/mLlGMarUsz9bGztA8RJBONt7J9CiLfBMKME3fx2Nqk/xMdGLWRU6O8t7M5x2omSgOwtNLfU+S4lkGdoHsRIVXNEFL9eAzMSTozSo8uJOqBtmOyaHCRSVJcF8L8xqzRBsUdA3q9U+SLgR+deF7yJShN8lL9dXzRPqLo+Y8q2vp499wde3lR2KVt9kLEhEzR/sU3AFh9UNltxhLSHr8y2SVNEH093ASRPSM2IRe9/sdLUq7+MMOqC9gSCqOfoerT6smYcVg5JqMfCr70SmjkQVwgE7l+3grCrjB6Sc4xGvCtyLxy197yTuyzTUCQL3ItdRejyQq8hPbRuvwxi68oUWwdilfcUAQc0yTRhWEcwDbcFvDFG+nYdPvylWaIOAGUlsrTKWdppT7iLVsNH/Fnh088EtTbL+pBSbjWj5Pa8/fnARp/MZ6BEmHE+mDR7RDvhJfdhNaxHrGadtaGmbVvHYo0oR6wWqiOkSfH2vD9TqEpp4amiEByxXMG+JMFNin+TFzA/FxLpIqGUzIO/vKtVv6jhy0GWosbEz1YHSkXkPM8m455opHcnWeKNtKQSUGtljeUW4da8T7SeEE1DZjeQBqZagX2CVkZqSMeTE5slss8IYeC0FL14tBih8cLP+zuAEikLq35Fv9e75A/p+Yp2Qb8PZoacMTxyhxOMvJZ64+RxSTQskuJx4GIbifdptOpIUdiwe+BSh3k9nq6WEEaP0eX6u9ZXoSLs7BoZtHJ74Mu2Au+q+zAHG4fUBGKdOvLb/7iwy3yXofRIUsKNFnADN/sezd4l0/aZfcFL9LicBF3SMKBJkgagHgzLkjZfOiWs68UtO0MAIHMSyI3zrG+QdZRehgbbjGYLlwzbfEzToF1aKi+2t8wdUORclDXthMsTTzb5bhCcJjwY/Ms8+0STdOUsC6paC9svXcF7pPxuTtGY/7IWM260DuzGDYe8Q9GU2zFrFVyiYXBjY3ZGmfgsuMP/iDswoO23eucC9dYHRoK0IMHHHDOFDMAA016r400YX6eg47FIVexIF1pNCzhZvXTnBCbDgTT6nvcokIWAyd0kVwH33Sgap4Z3rj5rQyaAVwsUpH2hjve0lBNasoMfOr/hUuyIS5DHodjsZCO+nKqRKEPUryHf7Ma9v5g5J46kF5lL0aJMf6kxJhcSvaNMa4dWVhsk3UyDPG5xdRZBO6e2OlimMoN7f8AbVfZF9LJrBiVSgDWgq1zBC/tNhg7Wm+aLf+VxbtAxr1CjtSt89mGdDCUr9LWftfHyncXh1ub6A2HRBcfah9M/Rru13An1WGWqOf8Xh7QSRdDn3fOEVl/SesmxJyDKkE61/Ri3h7h+W2n87nmgIaAIVg8ovsFIN0OZm6J2CyxgCjis2GuCLurnSCAFgiRsm9IP6PQLk5/3llWSrFmVoDDtfJD9P5apjuae5IqWfJWiMfvyEfTevqmufTTTS+w74lFv6OSHMK3yI5P0Z1/CYipvytIx+l8X6SHj19NizLJPWkMimJXAp4Fy3hebN85g5N7oYrjdDYonYrIo0eN1Ps6iCIz5dOCRPd0GIWpMSsFDx9IzVcwUzdU0Wfa+zmMpBsPHquxm/pJTkSV/KVEQf4cw7Q'
     # 加密后的密码，从浏览器或抓包工具中复制，可重复使用
     TPL_password2 = '8a65e84dbd099e3eb728bfbbbf6ecb2b759b50745120e186ad94b171e369dac0d877d0c816d49898ea166d2842469dcec0435e88d4f534ee502967eafd30976ca0424f9c4a65bfb8b27c1cd8cf68a3c94be4fb7bd4102095f34cfbfca2649eee9ac3ee3d2785789fc4de15279cfab6d6984c90ab557bb1ee83c187a4fd25698d'
     ul = UsernameLogin(username, ua, TPL_password2)
-    ul.get_taobao_nick_name()
+    ul.login()
